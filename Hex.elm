@@ -16,15 +16,36 @@ import Debug
 import Bitwise
 
 
+type TextureName
+    = Arctic
+    | Barren
+
+
+filename : TextureName -> String
+filename name =
+    case name of
+        Arctic ->
+            "arctic"
+
+        Barren ->
+            "barren"
+
+
+type alias TextureRecord =
+    { name : TextureName
+    , texture : Texture
+    }
+
+
 type alias Model =
-    { textures : Maybe Texture
+    { records : List TextureRecord
     , theta : Float
     }
 
 
 type Action
     = TextureError Error
-    | TextureLoaded Texture
+    | TextureLoaded TextureName Texture
     | Animate Time
 
 
@@ -32,10 +53,16 @@ update : Action -> Model -> ( Model, Cmd Action )
 update action model =
     case action of
         TextureError err ->
-            ( model, Cmd.none )
+            Debug.log "eror" <|
+                ( model, Cmd.none )
 
-        TextureLoaded textures ->
-            ( { model | textures = Just textures }, Cmd.none )
+        TextureLoaded name texture ->
+            let
+                newRecord =
+                    { name = name, texture = texture }
+            in
+                Debug.log "loading" <|
+                    ( { model | records = newRecord :: model.records }, Cmd.none )
 
         Animate dt ->
             ( { model
@@ -50,16 +77,23 @@ update action model =
 
 init : ( Model, Cmd Action )
 init =
-    ( { textures = Nothing, theta = 0 }
+    ( { records = [], theta = 0 }
+      -- ! [ Cmd.none ]
     , loadTexture "textures/terrain/arctic.jpg"
+        |> Debug.log "loading texture"
         |> Task.attempt
             (\result ->
                 case result of
                     Err err ->
-                        TextureError err
+                        TextureError
+                            err
+                            |> Debug.log "result"
 
                     Ok val ->
-                        TextureLoaded val
+                        TextureLoaded
+                            Barren
+                            val
+                            |> Debug.log "result2"
             )
     )
 
@@ -188,20 +222,25 @@ camera =
 
 
 view : Model -> Html Action
-view { textures, theta } =
-    (case textures of
-        Nothing ->
-            []
+view { records, theta } =
+    let
+        tex =
+            List.head (List.filter (\rec -> rec.name == Barren) records)
+                |> Debug.log "records"
+    in
+        case tex of
+            Nothing ->
+                []
+                    |> WebGL.toHtml [ width 800, height 800 ]
 
-        Just tex ->
-            [ render vertexShader fragmentShader (hexagon 0 0) { crate = tex, perspective = perspective theta, gridoffset = makeOffset 0 0 }
-            , render vertexShader fragmentShader (hexagon 0 1) { crate = tex, perspective = perspective theta, gridoffset = makeOffset 0 1 }
-            , render vertexShader fragmentShader (hexagon 1 0) { crate = tex, perspective = perspective theta, gridoffset = makeOffset 1 0 }
-            , render vertexShader fragmentShader (hexagon 2 0) { crate = tex, perspective = perspective theta, gridoffset = makeOffset 2 0 }
-            , render vertexShader fragmentShader (hexagon 1 1) { crate = tex, perspective = perspective theta, gridoffset = makeOffset 1 1 }
-            ]
-    )
-        |> WebGL.toHtml [ width 800, height 800 ]
+            Just tex ->
+                [ render vertexShader fragmentShader (hexagon 0 0) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 0 0 }
+                , render vertexShader fragmentShader (hexagon 0 1) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 0 1 }
+                , render vertexShader fragmentShader (hexagon 1 0) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 1 0 }
+                , render vertexShader fragmentShader (hexagon 2 0) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 2 0 }
+                , render vertexShader fragmentShader (hexagon 1 1) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 1 1 }
+                ]
+                    |> WebGL.toHtml [ width 800, height 800 ]
 
 
 
