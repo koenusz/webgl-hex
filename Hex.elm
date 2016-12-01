@@ -19,6 +19,7 @@ import Bitwise
 type TextureName
     = Arctic
     | Barren
+    | Ocean
 
 
 filename : TextureName -> String
@@ -29,6 +30,9 @@ filename name =
 
         Barren ->
             "barren"
+
+        Ocean ->
+            "ocean"
 
 
 type alias TextureRecord =
@@ -75,26 +79,51 @@ update action model =
             )
 
 
+loadTex : TextureName -> Cmd Action
+loadTex name =
+    let
+        path =
+            "textures/terrain/"
+                ++ filename name
+                ++ ".jpg"
+    in
+        loadTexture path
+            |> Task.attempt
+                (\result ->
+                    case result of
+                        Err err ->
+                            TextureError
+                                err
+
+                        Ok val ->
+                            TextureLoaded
+                                name
+                                val
+                )
+
+
 init : ( Model, Cmd Action )
 init =
-    ( { records = [], theta = 0 }
-      -- ! [ Cmd.none ]
-    , loadTexture "textures/terrain/arctic.jpg"
-        |> Debug.log "loading texture"
-        |> Task.attempt
-            (\result ->
-                case result of
-                    Err err ->
-                        TextureError
-                            err
-                            |> Debug.log "result"
-
-                    Ok val ->
-                        TextureLoaded
-                            Barren
-                            val
-                            |> Debug.log "result2"
-            )
+    ({ records = [], theta = 0 }
+        ! [ loadTex Arctic
+          , loadTex Barren
+          , loadTex Ocean
+          ]
+     -- ! [ Cmd.none ]
+     -- , loadTexture "textures/terrain/arctic.jpg"
+     --     |> Debug.log "loading texture"
+     --     |> Task.attempt
+     --         (\result ->
+     --             case result of
+     --                 Err err ->
+     --                     TextureError
+     --                         err
+     --
+     --                 Ok val ->
+     --                     TextureLoaded
+     --                         Barren
+     --                         val
+     -- )
     )
 
 
@@ -118,23 +147,32 @@ type alias Attributes =
     { pos : Vec3, coord : Vec3 }
 
 
-hexagon : Float -> Float -> Drawable Attributes
+hexagon : Int -> Int -> Drawable Attributes
 hexagon x y =
     TriangleFan <|
         hexcorners <|
-            { pos = (vec3 x y 0), coord = (vec3 0.5 0.5 0) }
+            { pos = (vec3 (toFloat x) (toFloat y) 0), coord = (vec3 0.5 0.5 0) }
 
 
 makeOffset : Int -> Int -> Mat4
 makeOffset x y =
     let
+        size =
+            1
+
+        width =
+            size * 2
+
+        height =
+            (sqrt (3) / 2) * width
+
         uneven =
             Bitwise.and x 1
 
         unevenoffset =
-            toFloat uneven * (sqrt (3) / 2)
+            toFloat uneven * height / 2
     in
-        makeTranslate <| vec3 (toFloat x * 3 / 2) (toFloat y * (sqrt (3)) - unevenoffset) 0
+        makeTranslate <| vec3 (toFloat x * (1 / 2)) (toFloat y * (height / 2.35) - unevenoffset) 0
 
 
 hexcorners : Attributes -> List Attributes
@@ -193,7 +231,6 @@ hexCorner x y size i =
             pi / 180 * toFloat angle_deg
     in
         vec3 (x + size * cos (angle_rad)) (y + size * sin (angle_rad)) 0
-            |> Debug.log "hexcorner"
 
 
 
@@ -222,25 +259,30 @@ camera =
 
 
 view : Model -> Html Action
-view { records, theta } =
+view model =
+    [ renderHex 0 0 Arctic model
+    , renderHex 0 1 Barren model
+    , renderHex 0 2 Arctic model
+    , renderHex 0 3 Arctic model
+    , renderHex 1 0 Barren model
+    , renderHex 2 0 Ocean model
+    , renderHex 1 1 Barren model
+    ]
+        |> WebGL.toHtml [ width 800, height 800 ]
+
+
+renderHex : Int -> Int -> TextureName -> Model -> Renderable
+renderHex x y textureName model =
     let
         tex =
-            List.head (List.filter (\rec -> rec.name == Barren) records)
-                |> Debug.log "records"
+            List.head (List.filter (\rec -> rec.name == textureName) model.records)
     in
         case tex of
             Nothing ->
-                []
-                    |> WebGL.toHtml [ width 800, height 800 ]
+                Renderable
 
             Just tex ->
-                [ render vertexShader fragmentShader (hexagon 0 0) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 0 0 }
-                , render vertexShader fragmentShader (hexagon 0 1) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 0 1 }
-                , render vertexShader fragmentShader (hexagon 1 0) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 1 0 }
-                , render vertexShader fragmentShader (hexagon 2 0) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 2 0 }
-                , render vertexShader fragmentShader (hexagon 1 1) { crate = tex.texture, perspective = perspective theta, gridoffset = makeOffset 1 1 }
-                ]
-                    |> WebGL.toHtml [ width 800, height 800 ]
+                render vertexShader fragmentShader (hexagon x y) { selectedTexture = tex.texture, perspective = perspective model.theta, gridoffset = makeOffset x y }
 
 
 
@@ -265,17 +307,17 @@ void main () {
 |]
 
 
-fragmentShader : Shader {} { u | crate : Texture } { vcoord : Vec2 }
+fragmentShader : Shader {} { u | selectedTexture : Texture } { vcoord : Vec2 }
 fragmentShader =
     [glsl|
 
 precision mediump float;
-uniform sampler2D crate;
+uniform sampler2D selectedTexture;
 varying vec2 vcoord;
 
 
 void main () {
-  gl_FragColor = texture2D(crate, vcoord);
+  gl_FragColor = texture2D(selectedTexture, vcoord);
 }
 
 |]
